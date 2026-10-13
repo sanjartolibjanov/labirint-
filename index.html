@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Strelka Labirint</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+  html,body{margin:0;height:100%;background:#fff;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#151a33;overflow:hidden}
+  #app{display:flex;flex-direction:column;align-items:center;height:100%;padding:10px}
+  #top{width:100%;max-width:520px;display:flex;justify-content:space-between;align-items:center;padding:6px 4px 10px}
+  #hearts{font-size:26px;letter-spacing:4px}
+  #bal{background:#f1f3fa;border-radius:14px;padding:8px 14px;font-weight:700;font-size:16px}
+  #lvl{font-size:13px;color:#7a809c;text-align:center;margin-bottom:6px}
+  #wrap{flex:1;display:flex;align-items:center;justify-content:center;width:100%}
+  canvas{touch-action:manipulation}
+  #float{position:fixed;pointer-events:none;font-weight:800;color:#18a957;font-size:20px;transition:transform .8s,opacity .8s}
+  .view{flex:1;display:flex;flex-direction:column;align-items:center;width:100%;min-height:0;overflow-y:auto}
+  .view h3{margin:8px 0 12px;font-size:22px;align-self:flex-start;max-width:520px}
+  .card{width:100%;max-width:520px;background:#f6f7fb;border-radius:18px;padding:16px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px}
+  .big{font-size:28px;font-weight:800}.green{color:#18a957}.sub{font-size:13px;color:#6b7190}
+  label{font-size:13px;font-weight:600;margin-top:4px}
+  input{width:100%;padding:13px;border:1px solid #dfe2ee;border-radius:12px;font-size:16px;background:#fff;color:#151a33}
+  .row{display:flex;gap:8px}
+  .btn{flex:1;border:0;border-radius:12px;padding:13px;font-size:15px;font-weight:700;background:#e4e7f3;color:#151a33}
+  .btn.dark{background:#151a33;color:#fff}.btn.full{width:100%;margin-top:6px}
+  .btn:disabled{opacity:.45}
+  .bar{height:8px;background:#e4e7f3;border-radius:6px;overflow:hidden}
+  #aBar,#lkBar{height:100%;width:0;background:#18a957;transition:width .4s}
+  #wdMsg{font-size:13px;font-weight:600}
+  #nav{width:100%;max-width:520px;display:flex;border-top:1px solid #eceef6;padding-top:6px;margin-top:4px}
+  #nav button{flex:1;background:none;border:0;font-size:22px;display:flex;flex-direction:column;align-items:center;gap:2px;color:#9aa0bb;padding:4px 0}
+  #nav button span{font-size:11px;font-weight:700}
+  #nav button.on{color:#151a33}
+  #ov{position:fixed;inset:0;background:rgba(255,255,255,.93);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:20px}
+  #ov h2{margin:0;font-size:28px}
+  #ov button{background:#151a33;color:#fff;border:0;border-radius:14px;padding:14px 28px;font-size:17px;font-weight:700}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="v-game" class="view">
+    <div id="top">
+      <div id="hearts">❤️❤️❤️</div>
+      <div id="bal">💰 0 so'm</div>
+    </div>
+    <div id="lvl"></div>
+    <div id="wrap"><canvas id="c"></canvas></div>
+  </div>
+
+  <div id="v-friends" class="view" style="display:none">
+    <h3>👥 Do'stlar</h3>
+    <div class="card">
+      <div class="big" id="fCount">0</div>
+      <div class="sub">taklif qilingan do'stlar</div>
+      <div class="sub" id="fStat"></div>
+      <div class="big green" id="fEarn">0 so'm</div>
+      <div class="sub">referal orqali topilgan</div>
+    </div>
+    <div class="card">
+      <div class="sub">Har bir do'st uchun <b id="refRew">1 000 so'm</b> olasiz</div>
+      <input id="refLink" readonly>
+      <div class="row">
+        <button class="btn" id="copyBtn">📋 Nusxalash</button>
+        <button class="btn dark" id="shareBtn">📨 Ulashish</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="v-account" class="view" style="display:none">
+    <h3>💳 Hisobim</h3>
+    <div id="gateBox" class="card" style="display:none">
+      <div><b>📢 Davom etish uchun kanallarga obuna bo'ling</b></div>
+      <div class="sub">Obuna bo'lgach «Tekshirish» tugmasini bosing.</div>
+      <div id="gateList"></div>
+      <button class="btn dark full" id="gateCheck">✅ Tekshirish</button>
+      <div id="gateMsg"></div>
+    </div>
+    <div id="accBody" style="width:100%;max-width:520px">
+    <div class="card">
+      <div class="sub">Jami balans</div>
+      <div class="big" id="aBal">0 so'm</div>
+      <div class="bar"><div id="aBar"></div></div>
+      <div class="sub" id="aHint"></div>
+    </div>
+    <div class="card" id="lockCard" style="display:none">
+      <div class="big">🎉 Tabriklaymiz!</div>
+      <div>Balansingiz minimal chiqarish summasiga yetdi.</div>
+      <div>Pulni chiqarib olish uchun <b id="lkNeed">15</b> ta yaqin do'stingizni botga taklif qiling.</div>
+      <div class="bar"><div id="lkBar"></div></div>
+      <div class="sub" id="lkStat"></div>
+      <div class="sub">Faol do'st: kanallarga obuna bo'lgan do'st.</div>
+      <button class="btn dark full" id="inviteBtn">👥 Do'stlarni taklif qilish</button>
+    </div>
+    <div class="card" id="wdForm">
+      <label>Karta raqami</label>
+      <input id="cardIn" inputmode="numeric" placeholder="8600 0000 0000 0000" maxlength="19">
+      <label>Chiqarish summasi (so'm)</label>
+      <input id="amtIn" inputmode="numeric" placeholder="300 000">
+      <div class="sub">Minimal chiqarish: <b id="minTxt">300 000 so'm</b></div>
+      <button class="btn dark full" id="wdBtn">Pulni chiqarish</button>
+      <div id="wdMsg"></div>
+    </div>
+    <div class="card">
+      <div class="sub"><b>So'rovlar tarixi</b></div>
+      <div id="wdList" class="sub">Hozircha yo'q</div>
+    </div>
+    </div>
+  </div>
+
+  <nav id="nav">
+    <button data-v="friends">👥<span>Do'stlar</span></button>
+    <button data-v="game" class="on">🎮<span>O'yin</span></button>
+    <button data-v="account">💳<span>Hisobim</span></button>
+  </nav>
+</div>
+<div id="ov"><h2 id="ovt"></h2><div id="ovs"></div><button id="ovb">Qayta boshlash</button></div>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+let REWARD = 1000;
+const API_URL = location.protocol.startsWith('http') ? location.origin : '';
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let balance = 0, level = 1, lives = 3, arrows = [], grid = new Map(), C, R, cell, over = false;
+let last = performance.now();
+
+try { balance = parseInt(localStorage.getItem('balance') || '0') || 0; } catch (e) {}
+function saveBalance() {
+  try { localStorage.setItem('balance', balance); } catch (e) {}
+  try { tg && tg.CloudStorage && tg.CloudStorage.setItem('balance', String(balance)); } catch (e) {}
+}
+try {
+  tg && !API_URL && tg.CloudStorage && tg.CloudStorage.getItem('balance', (err, v) => {
+    const n = parseInt(v || '0'); if (!err && n > balance) { balance = n; updateUI(); }
+  });
+} catch (e) {}
+
+const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
+const key = (x, y) => x + ',' + y;
+const rnd = n => Math.floor(Math.random() * n);
+
+function fmt(n) { return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+function updateUI() {
+  document.getElementById('hearts').textContent = '❤️'.repeat(lives) + '🖤'.repeat(3 - lives);
+  document.getElementById('bal').textContent = '💰 ' + fmt(balance) + " so'm";
+  document.getElementById('lvl').textContent = level + '-bosqich  •  strelkalar: ' + arrows.filter(a => !a.removed).length;
+  if (typeof renderAccount === 'function') renderAccount();
+}
+
+function generate() {
+  C = Math.min(7 + level, 12); R = C + 3;
+  const occ = new Set(), forb = new Set(); arrows = []; grid = new Map();
+  const inb = (x, y) => x >= 0 && y >= 0 && x < C && y < R;
+  const target = C * R * 0.62;
+  let used = 0;
+  for (let tries = 0; tries < 4000 && used < target; tries++) {
+    const sx = rnd(C), sy = rnd(R);
+    if (occ.has(key(sx, sy)) || forb.has(key(sx, sy))) continue;
+    const maxLen = 2 + rnd(5 + level);
+    const cells = [[sx, sy]]; const own = new Set([key(sx, sy)]);
+    let d = DIRS[rnd(4)];
+    while (cells.length < maxLen) {
+      let [cx, cy] = cells[cells.length - 1];
+      let opts = DIRS.slice().sort(() => Math.random() - .5);
+      if (Math.random() < .55) opts.unshift(d);
+      let moved = false;
+      for (const o of opts) {
+        const nx = cx + o[0], ny = cy + o[1], k = key(nx, ny);
+        if (!inb(nx, ny) || occ.has(k) || forb.has(k) || own.has(k)) continue;
+        cells.push([nx, ny]); own.add(k); d = o; moved = true; break;
+      }
+      if (!moved) break;
+    }
+    if (cells.length < 2) continue;
+    const head = cells[cells.length - 1];
+    const dir = [head[0] - cells[cells.length - 2][0], head[1] - cells[cells.length - 2][1]];
+    const ray = []; let x = head[0] + dir[0], y = head[1] + dir[1], bad = false;
+    while (inb(x, y)) { if (own.has(key(x, y))) { bad = true; break; } ray.push(key(x, y)); x += dir[0]; y += dir[1]; }
+    if (bad) continue;
+    cells.forEach(c => occ.add(key(c[0], c[1])));
+    ray.forEach(k => forb.add(k));
+    arrows.push({ id: arrows.length, cells, dir, removed: false, moving: false, t: 0, flash: 0 });
+    used += cells.length;
+  }
+  arrows.forEach(a => a.cells.forEach(c => grid.set(key(c[0], c[1]), a)));
+  buildGeom();
+}
+
+function resize() {
+  const wrap = document.getElementById('wrap');
+  const w = Math.min(wrap.clientWidth, 520) - 4, h = wrap.clientHeight - 4;
+  const dpr = window.devicePixelRatio || 1;
+  cell = Math.floor(Math.min(w / C, h / R));
+  cv.style.width = cell * C + 'px'; cv.style.height = cell * R + 'px';
+  cv.width = cell * C * dpr; cv.height = cell * R * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  buildGeom();
+}
+
+function buildGeom() {
+  if (!cell) return;
+  arrows.forEach(a => {
+    a.pts = a.cells.map(c => [(c[0] + .5) * cell, (c[1] + .5) * cell]);
+    a.cum = [0];
+    for (let i = 1; i < a.pts.length; i++) a.cum.push(a.cum[i-1] + Math.hypot(a.pts[i][0]-a.pts[i-1][0], a.pts[i][1]-a.pts[i-1][1]));
+    a.L = a.cum[a.cum.length - 1];
+    const h = a.pts[a.pts.length - 1];
+    const far = (Math.max(C, R) + a.cells.length + 2) * cell;
+    a.full = a.pts.concat([[h[0] + a.dir[0] * far, h[1] + a.dir[1] * far]]);
+    a.fcum = [0];
+    for (let i = 1; i < a.full.length; i++) a.fcum.push(a.fcum[i-1] + Math.hypot(a.full[i][0]-a.full[i-1][0], a.full[i][1]-a.full[i-1][1]));
+    a.T = a.fcum[a.fcum.length - 1];
+  });
+}
+
+function subPath(a, s, e) {
+  const out = [];
+  const at = p => {
+    for (let i = 1; i < a.fcum.length; i++) if (p <= a.fcum[i]) {
+      const k = (p - a.fcum[i-1]) / ((a.fcum[i] - a.fcum[i-1]) || 1);
+      return [a.full[i-1][0] + (a.full[i][0]-a.full[i-1][0]) * k, a.full[i-1][1] + (a.full[i][1]-a.full[i-1][1]) * k];
+    }
+    return a.full[a.full.length - 1];
+  };
+  out.push(at(s));
+  for (let i = 0; i < a.fcum.length; i++) if (a.fcum[i] > s && a.fcum[i] < e) out.push(a.full[i]);
+  out.push(at(e));
+  return out;
+}
+
+function drawArrow(a) {
+  const s = a.t, e = Math.min(a.t + a.L, a.T);
+  const p = subPath(a, s, e);
+  const col = a.flash > 0 ? '#ef2b4a' : '#151a33';
+  ctx.strokeStyle = col; ctx.fillStyle = col;
+  ctx.lineWidth = Math.max(2, cell * .13); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]);
+  for (let i = 1; i < p.length; i++) ctx.lineTo(p[i][0], p[i][1]);
+  ctx.stroke();
+  const h = p[p.length - 1], q = p[p.length - 2] || h;
+  const ang = Math.atan2(h[1] - q[1], h[0] - q[0]);
+  const hs = cell * .36;
+  ctx.save(); ctx.translate(h[0], h[1]); ctx.rotate(ang);
+  ctx.beginPath(); ctx.moveTo(hs * .55, 0); ctx.lineTo(-hs * .45, -hs * .6); ctx.lineTo(-hs * .45, hs * .6); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  for (const a of arrows) {
+    if (a.removed && !a.moving) continue;
+    if (a.moving) {
+      a.speed = (a.speed || cell * 4) + cell * 60 * dt;
+      a.t += a.speed * dt;
+      if (a.t >= a.L + (a.T - a.L) * .9) { a.moving = false; continue; }
+    }
+    if (a.flash > 0) a.flash -= dt;
+    drawArrow(a);
+  }
+  requestAnimationFrame(frame);
+}
+
+function findBlocker(a) {
+  const h = a.cells[a.cells.length - 1];
+  let x = h[0] + a.dir[0], y = h[1] + a.dir[1];
+  while (x >= 0 && y >= 0 && x < C && y < R) {
+    const b = grid.get(key(x, y)); if (b && b !== a) return b;
+    x += a.dir[0]; y += a.dir[1];
+  }
+  return null;
+}
+
+function distSeg(px, py, a, b) {
+  const dx = b[0]-a[0], dy = b[1]-a[1], l2 = dx*dx + dy*dy || 1;
+  let t = ((px-a[0])*dx + (py-a[1])*dy) / l2; t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (a[0] + t*dx), py - (a[1] + t*dy));
+}
+
+function floatText(x, y, txt) {
+  const el = document.createElement('div'); el.id = ''; el.className = 'f';
+  el.style.cssText = 'position:fixed;pointer-events:none;font-weight:800;color:#18a957;font-size:20px;transition:transform .8s,opacity .8s;left:' + x + 'px;top:' + y + 'px';
+  el.textContent = txt; document.body.appendChild(el);
+  requestAnimationFrame(() => { el.style.transform = 'translateY(-60px)'; el.style.opacity = 0; });
+  setTimeout(() => el.remove(), 900);
+}
+
+function onTap(ev) {
+  if (over) return;
+  const r = cv.getBoundingClientRect();
+  const pt = ev.touches ? ev.touches[0] : ev;
+  const px = pt.clientX - r.left, py = pt.clientY - r.top;
+  let best = null, bd = cell * .45;
+  for (const a of arrows) {
+    if (a.removed) continue;
+    for (let i = 1; i < a.pts.length; i++) {
+      const d = distSeg(px, py, a.pts[i-1], a.pts[i]);
+      if (d < bd) { bd = d; best = a; }
+    }
+  }
+  if (!best) return;
+  const blocker = findBlocker(best);
+  if (!blocker) {
+    best.removed = true; best.moving = true; best.t = 0; best.speed = 0;
+    best.cells.forEach(c => grid.delete(key(c[0], c[1])));
+    balance += REWARD; saveBalance();
+    levelP.then(lv => lv && lv.token ? api('/solve', { token: lv.token, arrow_id: best.id }) : null).then(r => {
+      if (r && r.ok) { balance = r.balance; saveBalance(); updateUI(); }
+      else if (r) syncServer();
+    });
+    floatText(pt.clientX - 30, pt.clientY - 20, '+' + fmt(REWARD));
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+    updateUI();
+    if (arrows.every(a => a.removed)) win();
+  } else {
+    best.flash = .45; blocker.flash = .45;
+    lives--; updateUI();
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+    if (lives <= 0) lose();
+  }
+}
+cv.addEventListener('pointerdown', onTap);
+
+const ov = document.getElementById('ov');
+function showOv(t, s, b, fn) {
+  over = true;
+  document.getElementById('ovt').textContent = t;
+  document.getElementById('ovs').textContent = s;
+  const btn = document.getElementById('ovb'); btn.textContent = b; btn.onclick = () => { ov.style.display = 'none'; over = false; fn(); };
+  ov.style.display = 'flex';
+}
+function win() { setTimeout(() => showOv('🎉 Barakalla!', level + '-bosqich tugadi. Balans: ' + fmt(balance) + " so'm", 'Keyingi bosqich', () => { level++; start(); }), 700); }
+function lose() { setTimeout(() => showOv('💔 Yurakchalar tugadi', 'Balans saqlandi: ' + fmt(balance) + " so'm", 'Qayta boshlash', () => { start(); }), 500); }
+
+/* ===== SOZLAMALAR ===== */
+// Quyidagilar serverdan (bot.py) olinadi, admin paneldan o'zgartiriladi
+let BOT_USERNAME = '', APP_SHORT = '';
+let REF_REWARD = 1000, MIN_WD = 300000;
+
+const user = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || { id: 'demo' };
+const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
+const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+let friends = load('friends', 0), withdrawals = load('wd', []);
+let gate = [];   // hali o'tilmagan majburiy obuna kanallari (server beradi)
+let fs = { total: 0, active: 0, inactive: 0, free: 0, need: 0 };   // do'stlar statistikasi (server beradi)
+
+function openLink(u) {
+  if (tg && /^https?:\/\/(t\.me|telegram\.me)\//.test(u)) tg.openTelegramLink(u);
+  else if (tg) tg.openLink(u);
+  else window.open(u, '_blank');
+}
+function renderGate() {
+  const box = document.getElementById('gateBox'), body = document.getElementById('accBody');
+  const list = document.getElementById('gateList');
+  box.style.display = gate.length ? 'flex' : 'none';
+  body.style.display = gate.length ? 'none' : 'block';
+  list.innerHTML = '';
+  gate.forEach(ch => {
+    const b = document.createElement('button');
+    b.className = 'btn'; b.style.cssText = 'width:100%;margin-bottom:8px';
+    b.textContent = (ch.kind === 'request' ? "📝 Zayavka yuborish: " : "📢 Obuna bo'lish: ") + ch.title;
+    b.onclick = () => openLink(ch.link);
+    list.appendChild(b);
+  });
+}
+document.getElementById('gateCheck').onclick = async () => {
+  const msg = document.getElementById('gateMsg'); msg.style.color = '#ef2b4a';
+  const r = await api('/subcheck', {});
+  if (!r || !r.ok) { msg.textContent = "Server bilan aloqa yo'q"; return; }
+  gate = r.gate; renderGate();
+  msg.textContent = gate.length ? "Hali hammasiga obuna bo'lmadingiz" : '';
+};
+
+async function api(path, body) {
+  if (!API_URL) return null;
+  try {
+    const r = await fetch(API_URL + path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: tg ? tg.initData : '', ...body }) });
+    return await r.json();
+  } catch (e) { return null; }
+}
+
+// Referal orqali kirgan bo'lsa serverga xabar beramiz
+(function () {
+  const sp = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
+  if (sp && sp.startsWith('ref_') && !load('refSent', false) && sp !== 'ref_' + user.id) {
+    store('refSent', true); api('/referral', { inviter: sp.slice(4) });
+  }
+})();
+
+let refLink = '';
+function setRefLink() {
+  if (!BOT_USERNAME) return;
+  refLink = APP_SHORT
+    ? 'https://t.me/' + BOT_USERNAME + '/' + APP_SHORT + '?startapp=ref_' + user.id
+    : 'https://t.me/' + BOT_USERNAME + '?start=ref_' + user.id;
+  document.getElementById('refLink').value = refLink;
+}
+document.getElementById('copyBtn').onclick = () => {
+  const i = document.getElementById('refLink'); i.select();
+  try { navigator.clipboard.writeText(refLink); } catch (e) { document.execCommand('copy'); }
+  document.getElementById('copyBtn').textContent = '✅ Nusxalandi';
+  setTimeout(() => document.getElementById('copyBtn').textContent = '📋 Nusxalash', 1500);
+};
+document.getElementById('shareBtn').onclick = () => {
+  const u = 'https://t.me/share/url?url=' + encodeURIComponent(refLink) + '&text=' + encodeURIComponent("Strelkalarni yech va pul top! 🎮");
+  if (tg) tg.openTelegramLink(u); else window.open(u, '_blank');
+};
+
+document.getElementById('inviteBtn').onclick = () => document.getElementById('shareBtn').click();
+
+// Serverdan do'stlar sonini yangilash (server bo'lsa)
+function applyConfig(r) {
+  if (!r) return;
+  if (r.reward) REWARD = r.reward;
+  if (r.ref_reward) REF_REWARD = r.ref_reward;
+  if (r.min_withdraw) MIN_WD = r.min_withdraw;
+  if (r.bot_username) { BOT_USERNAME = r.bot_username; APP_SHORT = r.app_short || ''; }
+  setRefLink();
+  document.getElementById('refRew').textContent = fmt(REF_REWARD) + " so'm";
+  document.getElementById('minTxt').textContent = fmt(MIN_WD) + " so'm";
+}
+
+async function syncServer() {
+  const r = await api('/me', {});
+  if (r && r.ok) {
+    applyConfig(r);
+    friends = r.friends; store('friends', friends);
+    gate = r.gate || [];
+    fs = { total: r.friends_total || 0, active: r.friends_active || 0, inactive: r.friends_inactive || 0,
+           free: r.friends_free || 0, need: r.need_friends || 0 };
+    if (Array.isArray(r.withdrawals)) { withdrawals = r.withdrawals; store('wd', withdrawals); }
+    balance = r.balance; saveBalance();
+    updateUI();
+  }
+}
+
+function renderAccount() {
+  renderGate();
+  // Minimal summaga yetgan, lekin do'stlar yetmasa: karta va summa maydoni yopiladi
+  const locked = balance >= MIN_WD && fs.need > 0 && fs.free < fs.need;
+  document.getElementById('lockCard').style.display = locked ? 'flex' : 'none';
+  document.getElementById('wdForm').style.display = locked ? 'none' : 'flex';
+  document.getElementById('lkNeed').textContent = fs.need;
+  document.getElementById('lkBar').style.width = Math.min(100, fs.need ? fs.free / fs.need * 100 : 0) + '%';
+  document.getElementById('lkStat').textContent = "Taklif qilgan: " + fs.total + " • Faol: " + fs.active +
+    " • Faol emas: " + fs.inactive + "  (hisobga olingan: " + fs.free + "/" + fs.need + ")";
+  document.getElementById('fStat').textContent = "Faol: " + fs.active + " • Faol emas: " + fs.inactive;
+  document.getElementById('fCount').textContent = friends;
+  document.getElementById('fEarn').textContent = fmt(friends * REF_REWARD) + " so'm";
+  document.getElementById('aBal').textContent = fmt(balance) + " so'm";
+  document.getElementById('aBar').style.width = Math.min(100, balance / MIN_WD * 100) + '%';
+  document.getElementById('aHint').textContent = balance >= MIN_WD ? "✅ Pulni chiqarish mumkin"
+    : "Yana " + fmt(MIN_WD - balance) + " so'm kerak (minimal " + fmt(MIN_WD) + ")";
+  const l = document.getElementById('wdList');
+  l.innerHTML = withdrawals.length ? withdrawals.slice().reverse().map(w =>
+    fmt(w.amount) + " so'm • •••• " + w.card.slice(-4) + " • " +
+    ({ pending: '⏳ kutilmoqda', paid: "✅ to'landi", rejected: '❌ rad etildi' }[w.status || 'pending'])).join('<br>') : "Hozircha yo'q";
+}
+
+const cardIn = document.getElementById('cardIn'), amtIn = document.getElementById('amtIn');
+cardIn.oninput = () => { cardIn.value = cardIn.value.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim(); };
+amtIn.oninput = () => { amtIn.value = fmt(parseInt(amtIn.value.replace(/\D/g, '') || '0') || '').replace(/^0$/, ''); };
+
+document.getElementById('wdBtn').onclick = async () => {
+  const msg = document.getElementById('wdMsg'); msg.style.color = '#ef2b4a';
+  const card = cardIn.value.replace(/\s/g, ''), amount = parseInt(amtIn.value.replace(/\s/g, '') || '0');
+  if (card.length !== 16) return msg.textContent = "Karta raqami 16 ta raqam bo'lishi kerak";
+  if (amount < MIN_WD) return msg.textContent = "Minimal chiqarish " + fmt(MIN_WD) + " so'm";
+  if (amount > balance) return msg.textContent = "Balansda mablag' yetarli emas";
+  const btn = document.getElementById('wdBtn'); btn.disabled = true;
+  if (API_URL) {
+    const r = await api('/withdraw', { card, amount });
+    if (!r || !r.ok) {
+      btn.disabled = false;
+      if (r && r.gate) { gate = r.gate; renderGate(); }
+      if (r && r.need_friends) syncServer();
+      return msg.textContent = (r && r.error) || "Server bilan aloqa yo'q";
+    }
+    balance = r.balance; saveBalance();
+    await syncServer();
+  } else {
+    balance -= amount; saveBalance();
+    withdrawals.push({ card, amount, status: 'pending' }); store('wd', withdrawals);
+  }
+  amtIn.value = ''; btn.disabled = false;
+  msg.style.color = '#18a957'; msg.textContent = "✅ So'rov yuborildi. Tez orada ko'rib chiqiladi.";
+  updateUI();
+};
+
+// Pastki menyu
+document.querySelectorAll('#nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('on', x === b));
+  ['game', 'friends', 'account'].forEach(v => document.getElementById('v-' + v).style.display = v === b.dataset.v ? 'flex' : 'none');
+  if (b.dataset.v === 'game') resize();
+  if (b.dataset.v !== 'game') syncServer();
+  renderAccount();
+});
+
+let levelP = Promise.resolve(null);
+let startSerial = 0;
+function restoreBoard(board) {
+  // Saqlangan taxtada ham katak o'lchamlari qayta tiklanadi.
+  C = Math.min(7 + level, 12);
+  R = C + 3;
+  arrows = board.map(a => ({
+    id: a.id, cells: a.cells, dir: a.dir, removed: !!a.removed,
+    moving: false, t: 0, speed: 0, flash: 0, pending: false
+  }));
+  grid = new Map();
+  arrows.forEach(a => {
+    if (!a.removed) a.cells.forEach(c => grid.set(key(c[0], c[1]), a));
+  });
+  buildGeom();
+}
+async function start(requestedLevel = level) {
+  const serial = ++startSerial;
+  lives = 3;
+  const saved = await api('/level', { level: requestedLevel });
+  if (serial !== startSerial) return;
+  if (saved && saved.ok) {
+    level = Math.max(1, Number(saved.level) || requestedLevel || 1);
+    if (Number.isFinite(Number(saved.balance))) balance = Number(saved.balance);
+    saveBalance();
+    if (Array.isArray(saved.board) && saved.board.length) {
+      restoreBoard(saved.board);
+      levelP = Promise.resolve({ token: saved.token });
+    } else {
+      // Birinchi kirish yoki keyingi bosqich: yangi taxta yaratib serverga saqlaymiz.
+      generate();
+      const board = arrows.map(a => ({ id: a.id, cells: a.cells, dir: a.dir, removed: false }));
+      const created = await api('/level', { level, board });
+      if (serial !== startSerial) return;
+      if (created && created.ok) {
+        level = Number(created.level) || level;
+        balance = Number(created.balance ?? balance);
+        levelP = Promise.resolve({ token: created.token });
+      } else {
+        levelP = Promise.resolve(null);
+      }
+    }
+  } else {
+    // Server/API ulanmagan brauzer sinovi uchun eski demo rejimi.
+    generate();
+    levelP = Promise.resolve(null);
+  }
+  resize(); updateUI();
+  if (arrows.length && arrows.every(a => a.removed)) setTimeout(() => { if (!over) win(); }, 250);
+}
+window.addEventListener('resize', resize);
+start(1);
+syncServer();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
