@@ -128,6 +128,8 @@ let balance = 0, level = 1, lives = 3, arrows = [], grid = new Map(), C, R, cell
 let last = performance.now();
 
 try { balance = parseInt(localStorage.getItem('balance') || '0') || 0; } catch (e) {}
+try { level = parseInt(localStorage.getItem('level') || '1') || 1; } catch (e) {}
+function saveLevel() { try { localStorage.setItem('level', level); } catch (e) {} }
 function saveBalance() {
   try { localStorage.setItem('balance', balance); } catch (e) {}
   try { tg && tg.CloudStorage && tg.CloudStorage.setItem('balance', String(balance)); } catch (e) {}
@@ -307,7 +309,7 @@ function onTap(ev) {
     best.removed = true; best.moving = true; best.t = 0; best.speed = 0;
     best.cells.forEach(c => grid.delete(key(c[0], c[1])));
     balance += REWARD; saveBalance();
-    levelP.then(lv => lv && lv.token ? api('/solve', { token: lv.token, arrow_id: best.id }) : null).then(r => {
+    levelP.then(lv => lv && lv.token ? api('/solve', { token: lv.token }) : null).then(r => {
       if (r && r.ok) { balance = r.balance; saveBalance(); updateUI(); }
       else if (r) syncServer();
     });
@@ -332,7 +334,13 @@ function showOv(t, s, b, fn) {
   const btn = document.getElementById('ovb'); btn.textContent = b; btn.onclick = () => { ov.style.display = 'none'; over = false; fn(); };
   ov.style.display = 'flex';
 }
-function win() { setTimeout(() => showOv('🎉 Barakalla!', level + '-bosqich tugadi. Balans: ' + fmt(balance) + " so'm", 'Keyingi bosqich', () => { level++; start(); }), 700); }
+function win() { setTimeout(() => showOv('🎉 Barakalla!', level + '-bosqich tugadi. Balans: ' + fmt(balance) + " so'm", 'Keyingi bosqich', () => {
+  // bosqichni serverga saqlaymiz; yangi bosqich tokeni shundan keyin olinadi (so'rovlar ketma-ket)
+  const prev = levelP;
+  level++; saveLevel();
+  const up = prev.then(lv => lv && lv.token ? api('/levelup', { token: lv.token }) : null);
+  start(up);
+}), 700); }
 function lose() { setTimeout(() => showOv('💔 Yurakchalar tugadi', 'Balans saqlandi: ' + fmt(balance) + " so'm", 'Qayta boshlash', () => { start(); }), 500); }
 
 /* ===== SOZLAMALAR ===== */
@@ -377,8 +385,10 @@ document.getElementById('gateCheck').onclick = async () => {
 async function api(path, body) {
   if (!API_URL) return null;
   try {
-    const r = await fetch(API_URL + path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 10000);   // server javob bermasa osilib qolmasin
+    const r = await fetch(API_URL + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
       body: JSON.stringify({ initData: tg ? tg.initData : '', ...body }) });
+    clearTimeout(tm);
     return await r.json();
   } catch (e) { return null; }
 }
@@ -424,10 +434,11 @@ function applyConfig(r) {
   document.getElementById('minTxt').textContent = fmt(MIN_WD) + " so'm";
 }
 
-async function syncServer() {
+async function syncServer(initial) {
   const r = await api('/me', {});
   if (r && r.ok) {
     applyConfig(r);
+    if (initial && r.level) { level = r.level; saveLevel(); }   // saqlangan bosqich (faqat ilova ochilganda)
     friends = r.friends; store('friends', friends);
     gate = r.gate || [];
     fs = { total: r.friends_total || 0, active: r.friends_active || 0, inactive: r.friends_inactive || 0,
@@ -501,59 +512,18 @@ document.querySelectorAll('#nav button').forEach(b => b.onclick = () => {
 });
 
 let levelP = Promise.resolve(null);
-let startSerial = 0;
-function restoreBoard(board) {
-  // Saqlangan taxtada ham katak o'lchamlari qayta tiklanadi.
-  C = Math.min(7 + level, 12);
-  R = C + 3;
-  arrows = board.map(a => ({
-    id: a.id, cells: a.cells, dir: a.dir, removed: !!a.removed,
-    moving: false, t: 0, speed: 0, flash: 0, pending: false
-  }));
-  grid = new Map();
-  arrows.forEach(a => {
-    if (!a.removed) a.cells.forEach(c => grid.set(key(c[0], c[1]), a));
-  });
-  buildGeom();
+function start(after) {
+  lives = 3; generate(); resize(); updateUI();
+  // server shu bosqich uchun mukofot limitini ochadi (oldingi bosqich saqlanib bo'lgach)
+  levelP = (after || Promise.resolve()).then(() => api('/level', { arrows: arrows.length }));
 }
-async function start(requestedLevel = level) {
-  const serial = ++startSerial;
-  lives = 3;
-  const saved = await api('/level', { level: requestedLevel });
-  if (serial !== startSerial) return;
-  if (saved && saved.ok) {
-    level = Math.max(1, Number(saved.level) || requestedLevel || 1);
-    if (Number.isFinite(Number(saved.balance))) balance = Number(saved.balance);
-    saveBalance();
-    if (Array.isArray(saved.board) && saved.board.length) {
-      restoreBoard(saved.board);
-      levelP = Promise.resolve({ token: saved.token });
-    } else {
-      // Birinchi kirish yoki keyingi bosqich: yangi taxta yaratib serverga saqlaymiz.
-      generate();
-      const board = arrows.map(a => ({ id: a.id, cells: a.cells, dir: a.dir, removed: false }));
-      const created = await api('/level', { level, board });
-      if (serial !== startSerial) return;
-      if (created && created.ok) {
-        level = Number(created.level) || level;
-        balance = Number(created.balance ?? balance);
-        levelP = Promise.resolve({ token: created.token });
-      } else {
-        levelP = Promise.resolve(null);
-      }
-    }
-  } else {
-    // Server/API ulanmagan brauzer sinovi uchun eski demo rejimi.
-    generate();
-    levelP = Promise.resolve(null);
-  }
-  resize(); updateUI();
-  if (arrows.length && arrows.every(a => a.removed)) setTimeout(() => { if (!over) win(); }, 250);
-}
-window.addEventListener('resize', resize);
-start(1);
-syncServer();
+window.addEventListener('resize', () => { if (cell || C) resize(); });
 requestAnimationFrame(frame);
+// Avval serverdan saqlangan bosqichni olamiz, keyin o'yinni boshlaymiz
+(async () => {
+  if (API_URL) await syncServer(true);
+  start();
+})();
 </script>
 </body>
 </html>
