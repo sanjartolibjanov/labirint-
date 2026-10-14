@@ -1,4 +1,4 @@
-"""
+
 Strelka Mini App: bot + admin panel + API (bitta fayl).
 
 Ishga tushirish:  python bot.py
