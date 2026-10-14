@@ -1,4 +1,4 @@
-
+"""
 Strelka Mini App: bot + admin panel + API (bitta fayl).
 
 Ishga tushirish:  python bot.py
@@ -196,7 +196,11 @@ def esc(s) -> str:
     return html.escape(str(s or ""))
 
 
-def play_kb() -> InlineKeyboardMarkup:
+def play_kb():
+    """«O'ynash» tugmasi. WEBAPP_URL https:// bo'lmasa Telegram tugmani rad etadi (va xabar umuman yuborilmaydi),
+    shuning uchun bunday holda tugmasiz qaytadi."""
+    if not WEBAPP_URL.startswith("https://"):
+        return None
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🎮 O'ynash", web_app=WebAppInfo(url=WEBAPP_URL))]])
 
@@ -289,7 +293,11 @@ async def cmd_start(m: Message, command: CommandObject):
             f"👥 Do'st taklif qilsangiz, har biri uchun <b>{fmt(get_setting('ref_reward'))} so'm</b>.\n"
             f"💳 Minimal chiqarish: <b>{fmt(get_setting('min_withdraw'))} so'm</b>.\n\n"
             f"Boshlash uchun pastdagi tugmani bosing 👇")
-    await m.answer(text, reply_markup=play_kb())
+    try:
+        await m.answer(text, reply_markup=play_kb())
+    except TelegramBadRequest as e:
+        log.error("/start tugma bilan yuborilmadi (%s), tugmasiz yuboryapman. WEBAPP_URL=%r", e, WEBAPP_URL)
+        await m.answer(text)
 
 
 # ----------------------------------------------------------------- Admin panel
@@ -1027,10 +1035,16 @@ async def main():
     init_db()
     me = await bot.get_me()
     BOT_USERNAME = me.username
+    log.info("Sozlamalar: WEBAPP_URL=%r | ADMIN_ID=%s | PORT=%s | baza=%s", WEBAPP_URL, ADMIN_ID, PORT, DB_PATH)
     if not WEBAPP_URL.startswith("https://"):
-        log.warning("WEBAPP_URL https:// bilan boshlanishi kerak (hozir: %r)", WEBAPP_URL)
+        log.error("WEBAPP_URL https:// bilan boshlanishi kerak (hozir: %r). Railway > Variables ga WEBAPP_URL yozing "
+                  "(masalan https://xxx.up.railway.app). Shu paytgacha «O'ynash» tugmasi chiqmaydi.", WEBAPP_URL)
     if not ADMIN_ID:
-        log.warning("ADMIN_ID .env da yo'q: /admin ishlamaydi")
+        log.warning("ADMIN_ID yo'q: /admin ishlamaydi")
+    on_railway = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
+    volume_ok = str(DB_PATH).startswith("/data")
+    if on_railway and not volume_ok:
+        log.warning("Railway'da /data volume ulanmagan: baza har deployda o'chib ketadi!")
 
     try:
         await bot.set_my_commands([BotCommand(command="start", description="Boshlash")])
@@ -1055,6 +1069,16 @@ async def main():
     log.info("Server: http://%s:%s | bot: @%s | baza: %s", HOST, PORT, BOT_USERNAME, DB_PATH)
 
     await bot.delete_webhook(drop_pending_updates=True)
+    if ADMIN_ID and os.getenv("NOTIFY_START", "1") == "1":
+        # Adminga holat haqida xabar: bot ishlayotganini va sozlamalar to'g'riligini darrov ko'rasiz
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                "✅ <b>Bot ishga tushdi</b>\n"
+                f"🌐 WEBAPP_URL: <code>{esc(WEBAPP_URL) or '❌ kiritilmagan'}</code>\n"
+                f"💾 Baza: <code>{esc(DB_PATH)}</code>" + ("" if volume_ok or not on_railway else "\n⚠️ Volume ulanmagan!"))
+        except Exception as e:
+            log.info("Adminga ishga tushish xabari yuborilmadi (botga /start bosing): %s", e)
     try:
         await dp.start_polling(bot)
     finally:
