@@ -1,4 +1,4 @@
-"""
+
 Strelka Mini App: bot + admin panel + API (bitta fayl).
 
 Ishga tushirish:  python bot.py
@@ -34,14 +34,21 @@ from dotenv import load_dotenv
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0") or 0)
-WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip().rstrip("/")
+# Railway'da WEBAPP_URL yozilmasa, Railway bergan domen avtomatik olinadi
+WEBAPP_URL = (os.getenv("WEBAPP_URL")
+              or (f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}" if os.getenv("RAILWAY_PUBLIC_DOMAIN") else "")
+              ).strip().rstrip("/")
 APP_SHORT = os.getenv("APP_SHORT", "").strip()      # BotFather /newapp dagi short name (bo'sh bo'lsa ?start= havola ishlatiladi)
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8080"))
 DEV_MODE = os.getenv("DEV_MODE", "0") == "1"        # faqat brauzerda sinash uchun
 BASE_DIR = Path(__file__).parent
 WEBAPP_DIR = BASE_DIR / "webapp"
-DB_PATH = BASE_DIR / os.getenv("DB_FILE", "miniapp.db")
+# Ma'lumotlar papkasi: Railway Volume /data ga ulangan bo'lsa baza shu yerda saqlanadi
+# (qayta deploy qilganda o'chib ketmaydi). /data bo'lmasa (kompyuteringizda) loyiha papkasida.
+DATA_DIR = Path(os.getenv("DATA_DIR") or ("/data" if os.path.isdir("/data") else BASE_DIR))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = DATA_DIR / os.getenv("DB_FILE", "miniapp.db")
 
 if not BOT_TOKEN:
     raise SystemExit(".env faylida BOT_TOKEN yo'q")
@@ -71,8 +78,7 @@ def init_db():
         solved INTEGER NOT NULL DEFAULT 0, ref_by INTEGER,
         created INTEGER NOT NULL, last_seen INTEGER NOT NULL,
         blocked INTEGER NOT NULL DEFAULT 0,
-        lv_token TEXT, lv_left INTEGER NOT NULL DEFAULT 0, lv_ts REAL NOT NULL DEFAULT 0,
-        game_level INTEGER NOT NULL DEFAULT 1, game_state TEXT NOT NULL DEFAULT ''
+        lv_token TEXT, lv_left INTEGER NOT NULL DEFAULT 0, lv_ts REAL NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS withdrawals(
@@ -98,10 +104,8 @@ def init_db():
     ucols = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
     if "friends_used" not in ucols:
         db.execute("ALTER TABLE users ADD COLUMN friends_used INTEGER NOT NULL DEFAULT 0")
-    if "game_level" not in ucols:
-        db.execute("ALTER TABLE users ADD COLUMN game_level INTEGER NOT NULL DEFAULT 1")
-    if "game_state" not in ucols:
-        db.execute("ALTER TABLE users ADD COLUMN game_state TEXT NOT NULL DEFAULT ''")
+    if "level" not in ucols:
+        db.execute("ALTER TABLE users ADD COLUMN level INTEGER NOT NULL DEFAULT 1")
     wcols = {r["name"] for r in db.execute("PRAGMA table_info(withdrawals)")}
     if "used" not in wcols:
         db.execute("ALTER TABLE withdrawals ADD COLUMN used INTEGER NOT NULL DEFAULT 0")
@@ -901,7 +905,8 @@ async def h_me(request):
     wds.reverse()
     gate = [gate_item(c) for c in await compute_gate(u["id"])]
     return web.json_response({"ok": True, "balance": u["balance"], "friends": u["friends"],
-                              "withdrawals": wds, "gate": gate, **public_cfg(), **friend_stats(u["id"])})
+                              "withdrawals": wds, "gate": gate, "level": u["level"],
+                              **public_cfg(), **friend_stats(u["id"])})
 
 
 async def h_subcheck(request):
@@ -913,75 +918,32 @@ async def h_subcheck(request):
 
 
 async def h_level(request):
-    """Har bir foydalanuvchining bosqichi va strelkalari serverda saqlanadi."""
     data, u = await read(request)
     if not u:
         return jerr("auth", 401)
     try:
-        requested_level = max(1, min(int(data.get("level", u["game_level"] or 1)), 10000))
+        arrows = max(1, min(int(data.get("arrows", 0)), 300))
     except (TypeError, ValueError):
-        requested_level = int(u["game_level"] or 1)
-
-    current_level = int(u["game_level"] or 1)
-    try:
-        saved = json.loads(u["game_state"] or "null")
-    except (TypeError, ValueError):
-        saved = None
-
-    # Avvaldan boshlangan raund bo'lsa, yangi qurilma/oyna ochilganda o'shani qaytaramiz.
-    if isinstance(saved, list) and saved and requested_level <= current_level:
-        token = u["lv_token"] or secrets.token_urlsafe(18)
-        if not u["lv_token"]:
-            db.execute("UPDATE users SET lv_token=? WHERE id=?", (token, u["id"]))
-            db.commit()
-        return web.json_response({"ok": True, "token": token, "level": current_level,
-                                  "board": saved, "balance": u["balance"], "resumed": True})
-
-    # Yangi raund boshlanayotgan bo'lsa, avval front-end taxtani yaratib yuboradi.
-    board = data.get("board")
-    if not isinstance(board, list):
-        return web.json_response({"ok": True, "needs_board": True,
-                                  "level": max(current_level, requested_level),
-                                  "balance": u["balance"]})
-    if not board or len(board) > 300:
-        return jerr("board")
-
-    clean = []
-    seen_ids = set()
-    for item in board:
-        if not isinstance(item, dict):
-            return jerr("board")
-        try:
-            aid = int(item["id"])
-            cells = item["cells"]
-            direction = item["dir"]
-            if aid in seen_ids or not isinstance(cells, list) or not (2 <= len(cells) <= 300):
-                return jerr("board")
-            if not isinstance(direction, list) or len(direction) != 2:
-                return jerr("board")
-            clean_cells = []
-            for c in cells:
-                if not isinstance(c, list) or len(c) != 2:
-                    return jerr("board")
-                x, y = int(c[0]), int(c[1])
-                if not (0 <= x < 20 and 0 <= y < 25):
-                    return jerr("board")
-                clean_cells.append([x, y])
-            dx, dy = int(direction[0]), int(direction[1])
-            if (dx, dy) not in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                return jerr("board")
-            seen_ids.add(aid)
-            clean.append({"id": aid, "cells": clean_cells, "dir": [dx, dy], "removed": False})
-        except (KeyError, TypeError, ValueError):
-            return jerr("board")
-
-    token = secrets.token_urlsafe(18)
-    left = len(clean)
-    db.execute("UPDATE users SET game_level=?, game_state=?, lv_token=?, lv_left=?, lv_ts=0 WHERE id=?",
-               (requested_level, json.dumps(clean, separators=(",", ":")), token, left, u["id"]))
+        return jerr("arrows")
+    token = secrets.token_urlsafe(12)
+    db.execute("UPDATE users SET lv_token=?, lv_left=?, lv_ts=0 WHERE id=?", (token, arrows, u["id"]))
     db.commit()
-    return web.json_response({"ok": True, "token": token, "level": requested_level,
-                              "board": clean, "balance": u["balance"], "resumed": False})
+    return web.json_response({"ok": True, "token": token})
+
+
+async def h_levelup(request):
+    """Bosqich tugaganda: keyingi bosqichga o'tishni saqlaydi (har bir bosqich tokeni bilan faqat bir marta)."""
+    data, u = await read(request)
+    if not u:
+        return jerr("auth", 401)
+    if not u["lv_token"] or data.get("token") != u["lv_token"]:
+        return jerr("level")
+    cur = db.execute("UPDATE users SET level=level+1, lv_token=NULL WHERE id=? AND lv_token=?",
+                     (u["id"], u["lv_token"]))
+    db.commit()
+    if cur.rowcount == 0:
+        return jerr("level")
+    return web.json_response({"ok": True, "level": get_user(u["id"])["level"]})
 
 
 async def h_solve(request):
@@ -990,27 +952,13 @@ async def h_solve(request):
         return jerr("auth", 401)
     if not u["lv_token"] or data.get("token") != u["lv_token"] or u["lv_left"] <= 0:
         return jerr("level")
-    try:
-        arrow_id = int(data.get("arrow_id"))
-        board = json.loads(u["game_state"] or "[]")
-    except (TypeError, ValueError):
-        return jerr("arrow")
-    if not isinstance(board, list):
-        return jerr("level")
-    target = next((a for a in board if a.get("id") == arrow_id), None)
-    if target is None or target.get("removed"):
-        return jerr("already_solved")
     now = time.time()
     if now - u["lv_ts"] < 0.12:
         return jerr("tez")
-    target["removed"] = True
-    left = sum(1 for a in board if not a.get("removed"))
-    db.execute("UPDATE users SET balance=balance+?, solved=solved+1, lv_left=?, lv_ts=?, game_state=? WHERE id=?",
-               (get_setting("reward"), left, now, json.dumps(board, separators=(",", ":")), u["id"]))
+    db.execute("UPDATE users SET balance=balance+?, solved=solved+1, lv_left=lv_left-1, lv_ts=? WHERE id=?",
+               (get_setting("reward"), now, u["id"]))
     db.commit()
-    updated = get_user(u["id"])
-    return web.json_response({"ok": True, "balance": updated["balance"],
-                              "remaining": left, "level": updated["game_level"]})
+    return web.json_response({"ok": True, "balance": get_user(u["id"])["balance"]})
 
 
 async def h_referral(request):
@@ -1099,12 +1047,12 @@ async def main():
     app.router.add_get("/config", h_config)
     for path, h in (("/me", h_me), ("/level", h_level), ("/solve", h_solve),
                     ("/referral", h_referral), ("/withdraw", h_withdraw),
-                    ("/subcheck", h_subcheck)):
+                    ("/subcheck", h_subcheck), ("/levelup", h_levelup)):
         app.router.add_post(path, h)
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, HOST, PORT).start()
-    log.info("Server: http://%s:%s | bot: @%s", HOST, PORT, BOT_USERNAME)
+    log.info("Server: http://%s:%s | bot: @%s | baza: %s", HOST, PORT, BOT_USERNAME, DB_PATH)
 
     await bot.delete_webhook(drop_pending_updates=True)
     try:
